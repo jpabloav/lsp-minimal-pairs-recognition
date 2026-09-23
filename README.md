@@ -1,0 +1,1 @@
+# lsp-minimal-pairs-recognition
