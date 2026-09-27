@@ -2,7 +2,7 @@
 Entrena el modelo ST-GCN sobre los datos preprocesados de LSP
 (stgcn_X_train.npy, stgcn_y_train.npy, stgcn_adjacency.npy).
 
-Guarda el mejor modelo (según accuracy de validación) en stgcn_best.pt.
+Guarda el mejor modelo (según F1-macro de validación) en stgcn_best.pt.
 """
 
 import numpy as np
@@ -10,17 +10,18 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import f1_score
 
 from stgcn_model import STGCN
 
-# --- Configuración: ajusta si hace falta -------------------------------
+# --- Configuración --------------------------------------------------------
 EPOCHS = 50
 BATCH_SIZE = 16
 LR = 1e-3
-VAL_SIZE = 0.15   # % de tu train actual que se reserva para validación
+VAL_SIZE = 0.15   # proporción del conjunto de entrenamiento reservada para validación
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 CHECKPOINT_PATH = "stgcn_best.pt"
-# -------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 class SkeletonDataset(Dataset):
@@ -36,17 +37,33 @@ class SkeletonDataset(Dataset):
 
 
 def evaluate(model, loader, criterion):
+    """
+    Devuelve (loss, accuracy, f1_macro). Con 34 clases desbalanceadas
+    (ej. Green=277 vs Crowd=100), accuracy puede verse "bien" solo por
+    acertar las clases mayoritarias. F1-macro promedia el F1 de CADA
+    clase por igual, así que una clase minoritaria mal predicha sí
+    penaliza la métrica -- es el criterio correcto para elegir el
+    mejor modelo en un dataset desbalanceado como este.
+    """
     model.eval()
-    total_loss, correct, total = 0.0, 0, 0
+    total_loss, total = 0.0, 0
+    all_preds, all_targets = [], []
     with torch.no_grad():
         for X, y in loader:
             X, y = X.to(DEVICE), y.to(DEVICE)
             out = model(X)
             loss = criterion(out, y)
             total_loss += loss.item() * X.size(0)
-            correct += (out.argmax(1) == y).sum().item()
             total += X.size(0)
-    return total_loss / total, correct / total
+            all_preds.append(out.argmax(1).cpu().numpy())
+            all_targets.append(y.cpu().numpy())
+
+    all_preds = np.concatenate(all_preds)
+    all_targets = np.concatenate(all_targets)
+    accuracy = (all_preds == all_targets).mean()
+    f1_macro = f1_score(all_targets, all_preds, average="macro", zero_division=0)
+
+    return total_loss / total, accuracy, f1_macro
 
 
 def main():
@@ -59,10 +76,10 @@ def main():
     num_classes = len(classes)
 
     # Nota: este split train/val es aleatorio (estratificado por clase),
-    # NO agrupado por sujeto, porque no guardamos a qué sujeto pertenece
-    # cada muestra de train. Sirve para monitorear el entrenamiento; la
-    # evaluación real y rigurosa sigue siendo el test set (ese sí está
-    # separado por sujeto desde run_split_and_preprocess.py).
+    # no agrupado por sujeto, ya que el índice de sujeto por muestra de
+    # train no se persiste en esta etapa. Sirve para monitorear el
+    # entrenamiento; la evaluación rigurosa sigue siendo el test set,
+    # que sí está separado por sujeto desde run_split_and_preprocess.py.
     X_train, X_val, y_train, y_val = train_test_split(
         X_train_full, y_train_full, test_size=VAL_SIZE,
         stratify=y_train_full, random_state=42,
@@ -76,7 +93,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
     criterion = nn.CrossEntropyLoss()
 
-    best_val_acc = 0.0
+    best_val_f1 = 0.0
     for epoch in range(1, EPOCHS + 1):
         model.train()
         running_loss = 0.0
@@ -90,17 +107,17 @@ def main():
             running_loss += loss.item() * X.size(0)
 
         train_loss = running_loss / len(train_loader.dataset)
-        val_loss, val_acc = evaluate(model, val_loader, criterion)
+        val_loss, val_acc, val_f1 = evaluate(model, val_loader, criterion)
 
         print(f"Epoch {epoch:3d}/{EPOCHS} | train_loss={train_loss:.4f} "
-              f"| val_loss={val_loss:.4f} | val_acc={val_acc:.2%}")
+              f"| val_loss={val_loss:.4f} | val_acc={val_acc:.2%} | val_f1_macro={val_f1:.4f}")
 
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
             torch.save(model.state_dict(), CHECKPOINT_PATH)
-            print(f"  -> nuevo mejor modelo guardado ({val_acc:.2%})")
+            print(f"  -> nuevo mejor modelo guardado (val_f1_macro={val_f1:.4f}, val_acc={val_acc:.2%})")
 
-    print(f"\nEntrenamiento terminado. Mejor val_acc: {best_val_acc:.2%}")
+    print(f"\nEntrenamiento terminado. Mejor val_f1_macro: {best_val_f1:.4f}")
     print(f"Checkpoint guardado en: {CHECKPOINT_PATH}")
 
 
