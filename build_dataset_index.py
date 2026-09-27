@@ -54,8 +54,8 @@ def summarize(paths, labels, subjects):
 
 
 if __name__ == "__main__":
-    # Cambia esta ruta a la carpeta raíz real de tu dataset descomprimido
-    DATASET_ROOT = "Dataset/Dataset"
+    # Ruta raíz del dataset descomprimido (contiene las carpetas SUBJECT_n)
+    DATASET_ROOT = r"Dataset\Dataset"
 
     paths, labels, subjects = build_file_index(DATASET_ROOT, modality="real")
     summarize(paths, labels, subjects)
