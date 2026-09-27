@@ -1,25 +1,26 @@
 """
-Preprocesamiento ST-GCN para el dataset de LSP (minimal pairs)
-================================================================
+Preprocesamiento de landmarks para ST-GCN (reconocimiento de LSP)
+===================================================================
 
-Formato de entrada esperado: archivos `skeleton_real.txt` como los que
-compartiste, con 75 landmarks por frame (33 de pose de MediaPipe + 21 de
-mano izquierda + 21 de mano derecha), 3 coordenadas por landmark (x, y, z)
-normalizadas por MediaPipe. Cada línea del .txt es un frame; cada frame
-trae 225 valores (75 * 3) separados por espacios.
+Formato de entrada: archivos skeleton_real.txt con 75 landmarks por
+frame (33 de pose de MediaPipe + 21 de mano izquierda + 21 de mano
+derecha), 3 coordenadas por landmark (x, y, z) normalizadas por
+MediaPipe. Cada línea del archivo corresponde a un frame; cada frame
+contiene 225 valores (75 * 3) separados por espacios.
 
-Pipeline que implementa:
+Pipeline:
     1. Carga del archivo -> array (T, 75, 3)
-    2. Interpolación de landmarks faltantes (NaN) en el eje temporal
-    3. Normalización espacial (centrado en hombros + escala por distancia
-       entre hombros), para hacer al esqueleto invariante a la posición
-       del signante frente a la cámara
-    4. Remuestreo temporal a un T fijo (mismo T que debes usar para la
-       rama CNN-LSTM, para que la comparación entre arquitecturas sea justa)
-    5. Construcción del tensor final (N, C, T, V, M) que espera ST-GCN
+    2. Imputación de landmarks faltantes (NaN) en el eje temporal
+    3. Normalización espacial (centrado en hombros + escala por
+       distancia entre hombros), para hacer al esqueleto invariante a
+       la posición del signante frente a la cámara
+    4. Remuestreo temporal a un T fijo (debe coincidir con el T usado
+       en la rama CNN-LSTM, para mantener comparabilidad entre
+       arquitecturas)
+    5. Construcción del tensor final (N, C, T, V, M) esperado por ST-GCN
     6. Matriz de adyacencia del grafo (pose superior + 2 manos)
 
-Índices de referencia de MediaPipe Pose usados aquí:
+Índices de referencia de MediaPipe Pose:
     11 = hombro izquierdo   12 = hombro derecho
     13 = codo izquierdo     14 = codo derecho
     15 = muñeca izquierda   16 = muñeca derecha
@@ -100,31 +101,73 @@ def load_skeleton_real(path, n_joints=N_JOINTS, n_coords=3):
 # Limpieza: interpolación de NaN (manos no detectadas en algunos frames)
 # ---------------------------------------------------------------------------
 def missing_ratio(joints):
-    """% de valores NaN en la muestra original — útil para decidir si descartarla."""
+    """Porcentaje de valores NaN en la muestra original, antes de imputar."""
     return float(np.isnan(joints).mean())
 
 
-def interpolate_missing(joints):
+def interpolate_missing(joints, max_gap_frames=5):
     """
-    Interpola linealmente los NaN en el eje temporal, por joint y coordenada.
-    Si faltan valores en los extremos del clip, se rellenan con el valor
-    válido más cercano (comportamiento por defecto de np.interp).
+    Imputa NaN combinando dos estrategias según la longitud del hueco
+    (huecos = frames consecutivos donde ese joint no se detectó):
+
+      - Huecos cortos (<= max_gap_frames, con un frame válido antes Y
+        después): interpolación lineal temporal entre el último valor
+        válido antes del hueco y el primero después. Preserva la
+        continuidad del movimiento sin saltos abruptos.
+
+      - Huecos largos (con al menos un lado válido): forward-fill
+        (o backward-fill si el hueco está al inicio del clip y no hay
+        "antes") -- se repite de forma CONSTANTE el último frame válido,
+        no un ciclo de varios frames, para no inventar un movimiento
+        periódico que nunca ocurrió.
+
+      - Un joint ausente en TODO el clip (ningún frame válido para
+        anclar el forward/backward-fill): se rellena con 0, único caso
+        sin alternativa razonable.
     """
     T, V, C = joints.shape
     joints = joints.copy()
-    frame_idx = np.arange(T)
+
     for v in range(V):
         for c in range(C):
             series = joints[:, v, c]
             nan_mask = np.isnan(series)
             if not nan_mask.any():
                 continue
+
             if nan_mask.all():
+                # el joint nunca se detectó en todo el clip -> cero
                 series[:] = 0.0
-            else:
-                valid = ~nan_mask
-                series[nan_mask] = np.interp(frame_idx[nan_mask], frame_idx[valid], series[valid])
+                joints[:, v, c] = series
+                continue
+
+            # localizar los huecos (tramos consecutivos de NaN)
+            padded = np.r_[False, nan_mask, False]
+            changes = np.diff(padded.astype(int))
+            starts = np.where(changes == 1)[0]
+            ends = np.where(changes == -1)[0]
+
+            for s, e in zip(starts, ends):
+                gap_len = e - s
+                has_before = s > 0
+                has_after = e < T
+                if gap_len <= max_gap_frames and has_before and has_after:
+                    # hueco corto con ambos lados válidos -> interpolación lineal
+                    t1, t2 = s - 1, e
+                    q1, q2 = series[t1], series[t2]
+                    frac = (np.arange(s, e) - t1) / (t2 - t1)
+                    series[s:e] = q1 + frac * (q2 - q1)
+                elif has_before:
+                    # hueco largo, o pegado al final del clip -> forward-fill:
+                    # repetir el último frame válido de forma constante
+                    series[s:e] = series[s - 1]
+                else:
+                    # hueco pegado al inicio del clip (sin "antes") ->
+                    # backward-fill: repetir hacia atrás el primer frame válido
+                    series[s:e] = series[e]
+
             joints[:, v, c] = series
+
     return joints
 
 
@@ -136,7 +179,7 @@ def normalize_spatial(joints, ref_a=LEFT_SHOULDER, ref_b=RIGHT_SHOULDER):
     Centra cada frame en el punto medio entre ref_a y ref_b (hombros por
     defecto) y escala por la distancia entre esos dos puntos. Esto hace al
     esqueleto invariante a la posición del signante frente a la cámara y a
-    diferencias de tamaño/distancia entre tus 17 sujetos.
+    diferencias de tamaño/distancia entre distintos sujetos.
     """
     center_x = (joints[:, ref_a, 0] + joints[:, ref_b, 0]) / 2  # (T,)
     center_y = (joints[:, ref_a, 1] + joints[:, ref_b, 1]) / 2  # (T,)
@@ -189,48 +232,50 @@ def process_sample(path, T_target=64):
     return joints, ratio
 
 
-def build_dataset_tensor(paths, T_target=64, missing_ratio_threshold=0.3):
+def build_dataset_tensor(paths, T_target=64):
     """
     Procesa una lista de rutas a archivos skeleton_real.txt y arma el tensor
-    final (N, C, T, V, M) que espera ST-GCN. M=1 porque cada clip tiene un
-    solo firmante. Las muestras con demasiados NaN se descartan y se reportan.
+    final (N, C, T, V, M) esperado por ST-GCN. M=1 porque cada clip tiene un
+    solo firmante.
 
-    Devuelve (X, kept_mask): kept_mask es un array booleano del mismo largo
-    que `paths`, True donde la muestra sí se conservó. ÚSALO para filtrar
-    también tus labels (y) en el mismo orden -- si no, tus y quedan
-    desalineadas respecto a X cuando se descarta alguna muestra.
+    No se descarta ninguna muestra por porcentaje de NaN: la literatura de
+    reconocimiento de señas basado en esqueletos generalmente imputa los
+    valores faltantes en vez de descartar la muestra completa (ver
+    interpolate_missing). Aquí solo se imputa.
+
+    Devuelve (X, missing_ratios): missing_ratios contiene el porcentaje de
+    NaN original de cada muestra (antes de imputar), útil como estadística
+    de calidad de datos.
     """
     samples = []
-    kept_mask = np.ones(len(paths), dtype=bool)
-    discarded = []
+    missing_ratios = np.zeros(len(paths), dtype=float)
     for i, p in enumerate(paths):
         joints, ratio = process_sample(p, T_target)
-        if ratio > missing_ratio_threshold:
-            discarded.append((p, ratio))
-            kept_mask[i] = False
-            continue
+        missing_ratios[i] = ratio
         samples.append(joints)
 
     X = np.stack(samples, axis=0)      # (N, C, T, V)
     X = X[:, :, :, :, None]            # (N, C, T, V, M=1)
 
-    if discarded:
-        print(f"[aviso] {len(discarded)} muestra(s) descartada(s) por exceso de NaN:")
-        for p, r in discarded:
-            print(f"  - {p} ({r:.1%} de valores NaN)")
+    high_missing = np.where(missing_ratios > 0.3)[0]
+    if len(high_missing):
+        print(f"[info] {len(high_missing)} muestra(s) con >30% de NaN "
+              f"(se conservan; reportadas para control de calidad de datos):")
+        for i in high_missing:
+            print(f"  - {paths[i]} ({missing_ratios[i]:.1%} de valores NaN)")
 
-    return X, kept_mask
+    return X, missing_ratios
 
 
 # ---------------------------------------------------------------------------
-# Demo con las muestras de ejemplo
+# Ejemplo de uso
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    ejemplo = "/mnt/user-data/uploads/skeleton_real.txt"
+    ejemplo = "ruta/a/una/muestra/skeleton_real.txt"
 
     joints_raw = load_skeleton_real(ejemplo)
     print("Forma original (T, V, C):", joints_raw.shape)
-    print(f"% de valores NaN antes de interpolar: {missing_ratio(joints_raw):.2%}")
+    print(f"% de valores NaN antes de imputar: {missing_ratio(joints_raw):.2%}")
 
     procesado, ratio = process_sample(ejemplo, T_target=64)
     print("Forma final por muestra (C, T, V):", procesado.shape)
@@ -239,6 +284,6 @@ if __name__ == "__main__":
     A = build_adjacency()
     print("Matriz de adyacencia:", A.shape, "- conexiones totales:", int(A.sum() - N_JOINTS))
 
-    # Ejemplo de tensor de dataset con una sola muestra repetida (solo demo)
-    X = build_dataset_tensor([ejemplo, ejemplo], T_target=64)
+    # Ejemplo de armado de tensor con una sola muestra repetida
+    X, _ = build_dataset_tensor([ejemplo, ejemplo], T_target=64)
     print("Tensor final del dataset (N, C, T, V, M):", X.shape)
