@@ -5,8 +5,8 @@ Ejecuta el pipeline completo de preprocesamiento ST-GCN, de punta a punta:
     2. Codifica las etiquetas de texto a números
     3. Separa train/test agrupando por sujeto (nadie se repite entre splits)
     4. Preprocesa cada muestra (build_dataset_tensor de preprocess_stgcn.py)
-    5. Guarda los tensores resultantes en disco (.npy) para no reprocesar
-       cada vez que entrenes
+    5. Guarda los tensores resultantes en disco (.npy), evitando reprocesar
+       en cada corrida de entrenamiento
 
 Requiere que build_dataset_index.py y preprocess_stgcn.py estén en la
 misma carpeta que este script, y las librerías scikit-learn y numpy
@@ -23,8 +23,8 @@ from sklearn.model_selection import GroupShuffleSplit
 from build_dataset_index import build_file_index
 from preprocess_stgcn import build_dataset_tensor, build_adjacency
 
-# --- Configuración: ajusta esto a tu caso -----------------------------
-DATASET_ROOT = "Dataset\Dataset"   # carpeta raíz de tu dataset descomprimido
+# --- Configuración -------------------------------------------------------
+DATASET_ROOT = r"Dataset\Dataset"   # carpeta raíz del dataset descomprimido
 T_TARGET = 64               # frames fijos por muestra tras el remuestreo
 TEST_SIZE = 0.2             # proporción de SUJETOS (no muestras) para test
 RANDOM_STATE = 42
@@ -58,13 +58,11 @@ def main():
     print(f"   Test:  {len(paths_test)} muestras, sujetos {subjects_test}")
 
     print("4) Preprocesando train (interpolación + normalización + remuestreo)...")
-    X_train, train_mask = build_dataset_tensor(paths_train, T_target=T_TARGET)
-    y_train = y_train[train_mask]   # importante: alinear labels con las muestras conservadas
+    X_train, _ = build_dataset_tensor(paths_train, T_target=T_TARGET)
     print(f"   X_train: {X_train.shape}  y_train: {y_train.shape}")
 
     print("5) Preprocesando test...")
-    X_test, test_mask = build_dataset_tensor(paths_test, T_target=T_TARGET)
-    y_test = y_test[test_mask]      # idem para test
+    X_test, _ = build_dataset_tensor(paths_test, T_target=T_TARGET)
     print(f"   X_test: {X_test.shape}  y_test: {y_test.shape}")
 
     print("6) Construyendo matriz de adyacencia del grafo...")
