@@ -12,7 +12,7 @@ run_split_and_preprocess.py:
     C = 3 (x, y, z)
     T = 64 (frames fijos)
     V = 75 (joints)
-    M = 1 (un solo firmante por clip)
+    M = 1 (un solo firmante para cada clip)
 """
 
 import numpy as np
@@ -108,7 +108,7 @@ class STGCN(nn.Module):
         self.fc = nn.Linear(c * 4, num_classes)
 
     def forward(self, x):
-        # x: (N, C, T, V, M) -> nos quedamos con M=1
+        # x: (N, C, T, V, M) -> se conserva únicamente M=1
         N, C, T, V, M = x.shape
         x = x[:, :, :, :, 0]                                          # (N, C, T, V)
 
