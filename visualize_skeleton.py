@@ -65,16 +65,36 @@ def plot_frame(ax, frame_xyz, edges, title=""):
                 color="red", fontsize=9, va="bottom")
 
 
-def save_single_frame(path, frame_idx=0, out_path="frame.png"):
-    """Guarda una imagen PNG de un frame específico de la muestra."""
+def save_all_frames(path, out_dir="frames"):
+    """Guarda una imagen PNG por cada frame de la muestra."""
+    import os
+
     joints = load_skeleton_real(path)  # (T, 75, 3)
     edges = get_all_edges()
 
-    fig, ax = plt.subplots(figsize=(5, 7))
-    plot_frame(ax, joints[frame_idx], edges, title=f"Frame {frame_idx}/{len(joints)-1}")
-    fig.savefig(out_path, dpi=120, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Guardado: {out_path}")
+    os.makedirs(out_dir, exist_ok=True)
+
+    for frame_idx in range(len(joints)):
+        fig, ax = plt.subplots(figsize=(5, 7))
+
+        plot_frame(
+            ax,
+            joints[frame_idx],
+            edges,
+            title=f"Frame {frame_idx}/{len(joints)-1}"
+        )
+
+        out_path = os.path.join(out_dir, f"frame_{frame_idx:04d}.png")
+
+        fig.savefig(
+            out_path,
+            dpi=120,
+            bbox_inches="tight"
+        )
+
+        plt.close(fig)
+
+    print(f"Guardados {len(joints)} frames en: {out_dir}")
 
 
 def save_animation(path, out_path="skeleton.gif", fps=10):
@@ -101,7 +121,7 @@ if __name__ == "__main__":
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # Ruta a la muestra a visualizar
-    MUESTRA = r"Dataset\SUBJECT_1\Poor\sample_1\landmarks\skeleton_real.txt"
+    MUESTRA = r"Dataset\SUBJECT_7\Fine\sample_3\landmarks\skeleton_real.txt"
 
-    save_single_frame(MUESTRA, frame_idx=0, out_path=f"{OUTPUT_DIR}/frame_0.png")
-    save_animation(MUESTRA, out_path=f"{OUTPUT_DIR}/skeleton.gif", fps=10)
+    save_all_frames(MUESTRA,out_dir=f"{OUTPUT_DIR}/frames")
+    save_animation(MUESTRA,out_path=f"{OUTPUT_DIR}/skeleton.gif",fps=10)
