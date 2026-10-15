@@ -7,13 +7,6 @@ Ejecuta el pipeline completo de preprocesamiento ST-GCN, de punta a punta:
     4. Preprocesa cada muestra (build_dataset_tensor de preprocess_stgcn.py)
     5. Guarda los tensores resultantes en disco (.npy), evitando reprocesar
        en cada corrida de entrenamiento
-
-Requiere que build_dataset_index.py y preprocess_stgcn.py estén en la
-misma carpeta que este script, y las librerías scikit-learn y numpy
-instaladas (`pip install scikit-learn numpy`).
-
-Uso:
-    python run_split_and_preprocess.py
 """
 
 import os

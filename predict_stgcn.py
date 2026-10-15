@@ -49,7 +49,7 @@ def predict(path, model, classes, top_k=3):
 
 if __name__ == "__main__":
     muestra = sys.argv[1] if len(sys.argv) > 1 else \
-        r"Dataset\Dataset\SUBJECT_1\Poor\sample_1\landmarks\skeleton_real.txt"
+        r"Dataset\SUBJECT_1\Poor\sample_1\landmarks\skeleton_real.txt"
 
     print(f"Cargando modelo desde {CHECKPOINT_PATH}...")
     model, classes = load_model()

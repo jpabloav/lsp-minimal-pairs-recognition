@@ -11,8 +11,6 @@ y arma tres listas paralelas (misma posición = misma muestra):
     - labels:   nombre de la clase (carpeta "Nombre_de_la_palabra")
     - subjects: identificador del sujeto (carpeta "SUBJECT_n")
 
-Esto es lo que luego se le pasa a build_dataset_tensor() del script
-preprocess_stgcn.py, y a la codificación de labels / split por sujeto.
 """
 
 from pathlib import Path
