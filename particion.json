@@ -1,0 +1,10 @@
+{
+  "descripcion": "Partición fija por sujetos (12 train / 3 val / 2 test), compartida por las dos arquitecturas. Los sujetos de val y test se sortearon con semilla 42 entre los que tienen las 34 clases y al menos 250 muestras; los sujetos pequeños o con cobertura incompleta de clases (2, 3, 4 y 17) quedan en train.",
+  "train": [
+    "SUBJECT_2", "SUBJECT_3", "SUBJECT_4", "SUBJECT_6", "SUBJECT_9", "SUBJECT_10",
+    "SUBJECT_11", "SUBJECT_12", "SUBJECT_13", "SUBJECT_15", "SUBJECT_16", "SUBJECT_17"
+  ],
+  "val": ["SUBJECT_1", "SUBJECT_7", "SUBJECT_8"],
+  "test": ["SUBJECT_5", "SUBJECT_14"],
+  "excluir_muestras": ["SUBJECT_2/Analyze/sample_2"]
+}

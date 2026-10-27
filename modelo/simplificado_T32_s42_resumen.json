@@ -1,0 +1,21 @@
+{
+  "corrida": "simplificado_T32_s42",
+  "arquitectura": "simplificado",
+  "T": 32,
+  "semilla": 42,
+  "hiperparametros": {
+    "lr": 0.001,
+    "batch": 32,
+    "epochs_max": 50,
+    "paciencia": 10
+  },
+  "muestras": {
+    "train": 2813,
+    "val": 988
+  },
+  "epocas_ejecutadas": 26,
+  "mejor_epoca": 16,
+  "mejor_val_f1_macro": 0.7229610210278619,
+  "segundos": 606.4,
+  "dispositivo": "cuda"
+}
