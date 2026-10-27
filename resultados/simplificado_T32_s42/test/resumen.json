@@ -8,6 +8,18 @@
   "accuracy": 0.5945485519591142,
   "f1_macro": 0.5282377221285761,
   "f1_weighted": 0.5815820914704646,
+  "por_sujeto": {
+    "SUBJECT_5": {
+      "muestras": 304,
+      "accuracy": 0.6546052631578947,
+      "f1_macro": 0.5420973682814848
+    },
+    "SUBJECT_14": {
+      "muestras": 283,
+      "accuracy": 0.5300353356890459,
+      "f1_macro": 0.4840106823437226
+    }
+  },
   "grupos_minimal_pairs": [
     {
       "grupo": [
